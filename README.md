@@ -1,5 +1,13 @@
 # Raxi Court
 
+![Python](https://img.shields.io/badge/python-3.12-blue)
+![Version](https://img.shields.io/badge/version-v1.0.0-blue)
+![Netlify](https://img.shields.io/badge/netlify-deployed-00C7B7)
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Last Commit](https://img.shields.io/github/last-commit/RaxiLabs/raxi-council)
+![Repo Size](https://img.shields.io/github/repo-size/RaxiLabs/raxi-council)
+![Stars](https://img.shields.io/github/stars/RaxiLabs/raxi-council)
+
 Raxi Court is an experimental multi-LLM verification CLI from Raxi Labs. It asks multiple models to answer the same prompt, hides model identities, has independent arbiter models evaluate each answer, then saves an auditable Markdown report with scores, hallucination flags, semantic agreement, token usage, and estimated cost.
 
 The current project is intentionally small: one interactive CLI entry point, a few source modules, plain-text arbiter prompts, and generated reports in `results/`.
