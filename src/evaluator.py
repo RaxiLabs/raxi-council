@@ -1,0 +1,292 @@
+import time
+from colorama import Fore, init
+from src.agents import generate_responses, anonymise_and_shuffle, evaluate_responses
+from src.aggregator import calculate_final_score, select_best_response
+from src.config import (
+    MIN_VALID_ARBITERS,
+    GENERATION_MODELS,
+    EVALUATION_MODELS,
+    EVALUATION_PERSONAS,
+    HALLUCINATION_POLICY,
+    HALLUCINATION_WEIGHT_THRESHOLD,
+    SEMANTIC_ENTROPY_WARNING_THRESHOLD,
+)
+from src.output import save_results
+from src.safety import classify_prompt_safety
+from src.semantic_entropy import analyse_semantic_entropy
+
+init(autoreset=True)
+
+
+def _token_budget_exceeded(usage_summary, max_total_tokens, stage):
+    if max_total_tokens is None or usage_summary["total_tokens"] <= max_total_tokens:
+        return False
+
+    print(
+        Fore.RED
+        + f"  ✗ Token budget exceeded during {stage}. "
+        + f"Spent {usage_summary['total_tokens']} of {max_total_tokens} tokens."
+    )
+    return True
+
+
+def _empty_usage_summary(max_total_tokens=None):
+    return {
+        "calls": [],
+        "total_prompt_tokens": 0,
+        "total_completion_tokens": 0,
+        "total_tokens": 0,
+        "total_cost_usd": 0.0,
+        "max_total_tokens": max_total_tokens,
+        "remaining_tokens": None if max_total_tokens is None else max_total_tokens,
+    }
+
+
+def _extend_usage_summary(usage_summary, new_calls):
+    if not new_calls:
+        return usage_summary
+
+    usage_summary["calls"].extend(new_calls)
+    usage_summary["total_prompt_tokens"] += sum(call["prompt_tokens"] for call in new_calls)
+    usage_summary["total_completion_tokens"] += sum(call["completion_tokens"] for call in new_calls)
+    usage_summary["total_tokens"] += sum(call["total_tokens"] for call in new_calls)
+    usage_summary["total_cost_usd"] = round(
+        usage_summary["total_cost_usd"] + sum(call["cost_usd"] for call in new_calls),
+        4,
+    )
+
+    max_total_tokens = usage_summary["max_total_tokens"]
+    if max_total_tokens is not None:
+        usage_summary["remaining_tokens"] = max(0, max_total_tokens - usage_summary["total_tokens"])
+
+    return usage_summary
+
+
+def _select_generation_models(generation_count):
+    max_generation = len(GENERATION_MODELS)
+    min_generation = 2 if max_generation >= 2 else max_generation
+
+    if generation_count is None:
+        generation_count = max_generation
+
+    generation_count = max(min_generation, min(generation_count, max_generation))
+    return GENERATION_MODELS[:generation_count]
+
+
+def _select_evaluation_setup(evaluation_count):
+    max_evaluators = len(EVALUATION_MODELS)
+
+    if evaluation_count is None:
+        evaluation_count = max_evaluators
+
+    evaluation_count = max(1, min(evaluation_count, max_evaluators))
+
+    return (
+        EVALUATION_PERSONAS[:evaluation_count],
+        EVALUATION_MODELS[:evaluation_count],
+        min(MIN_VALID_ARBITERS, evaluation_count),
+    )
+
+
+def _valid_arbiter_count(evaluations):
+    return sum(1 for value in evaluations.values() if value is not None)
+
+
+def _build_run_config(generation_models, evaluation_personas, evaluation_models, min_valid_arbiters):
+    return {
+        "generation_models": generation_models,
+        "generation_count": len(generation_models),
+        "evaluation_personas": evaluation_personas,
+        "evaluation_models": evaluation_models,
+        "evaluation_count": len(evaluation_models),
+        "min_valid_arbiters": min_valid_arbiters,
+        "hallucination_policy": HALLUCINATION_POLICY,
+        "hallucination_weight_threshold": HALLUCINATION_WEIGHT_THRESHOLD,
+    }
+
+
+def _build_results(
+    user_prompt,
+    report_name,
+    attempt,
+    elapsed_time,
+    final_score,
+    best_response,
+    anonymised,
+    evaluations,
+    aggregation,
+    usage_summary,
+    run_config,
+    safety_response=None,
+):
+    results = {
+        "prompt": user_prompt,
+        "report_name": report_name,
+        "attempt": attempt,
+        "elapsed_time": elapsed_time,
+        "final_score": final_score,
+        "best_response": best_response,
+        "anonymised_responses": anonymised,
+        "evaluations": evaluations,
+        "aggregation": aggregation,
+        "usage": usage_summary,
+        "run_config": run_config,
+    }
+
+    if safety_response is not None:
+        results["safety_response"] = safety_response
+
+    return results
+
+
+def run_council(
+    user_prompt,
+    score_threshold,
+    max_retries,
+    report_name=None,
+    max_total_tokens=None,
+    generation_count=None,
+    evaluation_count=None,
+):
+    attempt = 0
+    results = None
+    usage_summary = _empty_usage_summary(max_total_tokens)
+    generation_models = _select_generation_models(generation_count)
+    evaluation_personas, evaluation_models, min_valid_arbiters = _select_evaluation_setup(evaluation_count)
+    run_config = _build_run_config(
+        generation_models,
+        evaluation_personas,
+        evaluation_models,
+        min_valid_arbiters,
+    )
+    safety_response = classify_prompt_safety(user_prompt)
+
+    if safety_response["blocked"]:
+        print(Fore.RED + f"\n  ✗ {safety_response['title']}. Council run blocked.")
+        results = _build_results(
+            user_prompt=user_prompt,
+            report_name=report_name,
+            attempt=0,
+            elapsed_time=0,
+            final_score=None,
+            best_response=None,
+            anonymised=[],
+            evaluations={},
+            aggregation=None,
+            usage_summary=usage_summary,
+            run_config=run_config,
+            safety_response=safety_response,
+        )
+        save_results(results)
+        return results
+
+    while attempt < max_retries:
+        if max_total_tokens is not None and usage_summary["total_tokens"] >= max_total_tokens:
+            print(
+                Fore.RED
+                + f"\n  ✗ Token budget exhausted before attempt {attempt + 1}. "
+                + f"Spent {usage_summary['total_tokens']} of {max_total_tokens} tokens."
+            )
+            return None
+
+        attempt += 1
+        print(Fore.YELLOW + f"\n  ── Attempt {attempt} of {max_retries} " + "─" * 40)
+        start_time = time.time()
+
+        responses, gen_usage = generate_responses(user_prompt, generation_models=generation_models)
+        _extend_usage_summary(usage_summary, gen_usage)
+
+        if _token_budget_exceeded(usage_summary, max_total_tokens, "generation"):
+            return None
+
+        if not responses:
+            print(Fore.RED + "  ✗ No responses generated. Retrying...")
+            continue
+
+        if len(responses) < 2:
+            print(Fore.RED + "  ✗ Insufficient responses. Retrying...")
+            continue
+
+        anonymised = anonymise_and_shuffle(responses)
+
+        evaluations, eval_usage = evaluate_responses(
+            user_prompt,
+            anonymised,
+            evaluation_personas=evaluation_personas,
+            evaluation_models=evaluation_models,
+            min_valid_arbiters=min_valid_arbiters,
+        )
+        _extend_usage_summary(usage_summary, eval_usage)
+
+        if _token_budget_exceeded(usage_summary, max_total_tokens, "evaluation"):
+            return None
+
+        valid_arbiter_count = _valid_arbiter_count(evaluations)
+        if valid_arbiter_count < min_valid_arbiters:
+            print(Fore.RED + f"  ✗ Only {valid_arbiter_count} valid arbiter(s); need at least {min_valid_arbiters}. Retrying...")
+            continue
+
+        best_response, response_scores, persona_breakdown = select_best_response(anonymised, evaluations)
+
+        if best_response is None:
+            print(Fore.RED + "  ✗ Best response selection failed. Retrying...")
+            continue
+
+        semantic_entropy, semantic_usage = analyse_semantic_entropy(user_prompt, anonymised, response_scores)
+        _extend_usage_summary(usage_summary, semantic_usage)
+
+        if _token_budget_exceeded(usage_summary, max_total_tokens, "semantic entropy analysis"):
+            return None
+
+        aggregation = calculate_final_score(evaluations, best_response["id"])
+
+        if aggregation is None:
+            print(Fore.RED + "  ✗ Aggregation failed. Retrying...")
+            continue
+
+        aggregation["response_scores"] = response_scores
+        aggregation["response_persona_scores"] = persona_breakdown
+        aggregation["semantic_entropy"] = semantic_entropy
+
+        final_score = aggregation["final_score"]
+
+        if semantic_entropy is not None:
+            print(
+                Fore.WHITE
+                + f"  ✦ Semantic entropy: {semantic_entropy['normalized_entropy']} "
+                + f"(agreement: {semantic_entropy['agreement_score']})"
+            )
+            if semantic_entropy["normalized_entropy"] >= SEMANTIC_ENTROPY_WARNING_THRESHOLD:
+                print(Fore.YELLOW + "  [WARN] High semantic disagreement detected across candidate responses.")
+
+        if final_score < score_threshold:
+            print(Fore.RED + f"  ✗ Score {final_score}/100 below threshold {score_threshold}/100. Retrying...")
+            continue
+
+        elapsed = round(time.time() - start_time, 2)
+
+        print(Fore.GREEN + f"\n  ✓ Completed in {elapsed}s  ·  Final score: {final_score}/100")
+        print(Fore.WHITE  + f"  ✦ API usage: {usage_summary['total_tokens']} tokens  ·  ${usage_summary['total_cost_usd']:.4f}")
+
+        results = _build_results(
+            user_prompt=user_prompt,
+            report_name=report_name,
+            attempt=attempt,
+            elapsed_time=elapsed,
+            final_score=final_score,
+            best_response=best_response,
+            anonymised=anonymised,
+            evaluations=evaluations,
+            aggregation=aggregation,
+            usage_summary=usage_summary,
+            run_config=run_config,
+        )
+
+        break
+
+    if results is None:
+        print(Fore.RED + f"\n  ✗ Failed after {max_retries} attempt(s). Best score below threshold ({score_threshold}/100).")
+        return None
+
+    save_results(results)
+    return results
