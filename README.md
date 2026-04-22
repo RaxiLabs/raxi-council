@@ -1,269 +1,250 @@
 # Raxi Court
 
-A multi-agent AI evaluation framework that generates responses from several LLMs, evaluates them through independent arbiters, and returns the highest-scoring response with full traceability, hallucination analysis, and semantic agreement metrics.
+Raxi Court is an experimental multi-LLM verification CLI from Raxi Labs. It asks multiple models to answer the same prompt, hides model identities, has independent arbiter models evaluate each answer, then saves an auditable Markdown report with scores, hallucination flags, semantic agreement, token usage, and estimated cost.
 
----
+The current project is intentionally small: one interactive CLI entry point, a few source modules, plain-text arbiter prompts, and generated reports in `results/`.
+
+## Current Capabilities
+
+- Generates candidate answers from multiple OpenRouter models.
+- Shuffles and anonymizes responses before evaluation.
+- Evaluates responses with three arbiter personas: sceptic, expert, and logician.
+- Scores factual accuracy, completeness, and reasoning quality.
+- Selects the best response using weighted arbiter scores.
+- Flags hallucination concerns reported by arbiters.
+- Runs a lightweight prompt safety check before calling generation models.
+- Computes semantic entropy from response clusters to show agreement or disagreement.
+- Tracks prompt tokens, completion tokens, total tokens, and estimated cost.
+- Retries API calls and malformed evaluator JSON where possible.
+- Saves full Markdown reports under `results/`.
 
 ## How It Works
 
 ```text
-                User Prompt
-                    |
-                    v
-┌─────────────────────────────────────────┐
-│  SAFETY CHECK                           │
-│  Harmful/dangerous prompts are blocked  │
-└───────────────────┬─────────────────────┘
-                    |
-                    v
-┌─────────────────────────────────────────┐
-│  GENERATION                             │
-│  k LLMs answer the prompt in parallel   │
-└───────────────────┬─────────────────────┘
-                    |
-                    v
-┌─────────────────────────────────────────┐
-│  ANONYMISATION                          │
-│  Responses shuffled & labelled A/B/C    │
-└───────────────────┬─────────────────────┘
-                    |
-                    v
-┌─────────────────────────────────────────┐
-│  EVALUATION                             │
-│  m arbiter personas score each response │
-│  - SCEPTIC · EXPERT · LOGICIAN          │
-└───────────────────┬─────────────────────┘
-                    |
-                    v
-┌─────────────────────────────────────────┐
-│  AGGREGATION                            │
-│  Weighted scores -> final score (0-100) │
-│  Best response selected                 │
-└───────────────────┬─────────────────────┘
-                    |
-                    v
-┌─────────────────────────────────────────┐
-│  SEMANTIC ENTROPY                       │
-│  Measures agreement across candidates   │
-└───────────────────┬─────────────────────┘
-                    |
-                    v
-          Raxi Court Report
+User prompt
+   |
+   v
+Safety check
+   |
+   v
+Generate candidate responses
+   |
+   v
+Anonymize and shuffle responses
+   |
+   v
+Evaluate with arbiter personas
+   |
+   v
+Aggregate weighted scores
+   |
+   v
+Analyze semantic entropy
+   |
+   v
+Save Markdown report
 ```
 
-Responses are anonymised before evaluation so arbiters cannot identify the source model. If the final score falls below the configured threshold, the system retries with a fresh generation round. Successful runs are saved as Markdown reports for later review.
+If a prompt matches the built-in harmful-instruction filters, the council run is blocked before model generation. A safety report is still saved so the blocked run remains auditable.
 
----
+## Requirements
 
-## The Three Arbiters
+- Python 3.12 or newer
+- An OpenRouter API key
 
-Each arbiter is a separate LLM instance operating under a distinct evaluation persona. They score independently; no arbiter sees another arbiter's scores.
+Install dependencies with:
 
-| Arbiter | Role | Focus | Weight |
-|---|---|---|---|
-| **ARBITER-1 SCEPTIC** | Rigorous fact-checker | Verifiability, unsupported claims, epistemic overconfidence | 50% |
-| **ARBITER-2 EXPERT** | Domain depth evaluator | Technical accuracy, correct use of terminology, precision | 25% |
-| **ARBITER-3 LOGICIAN** | Reasoning auditor | Logical structure, internal consistency, argument validity | 25% |
+```bash
+pip install -r requirements.txt
+```
 
-Each arbiter scores on three dimensions:
+The project depends on:
 
-| Dimension | Weight |
-|---|---|
-| Factual Accuracy | 50% |
-| Completeness | 25% |
-| Reasoning Quality | 25% |
-
----
-
-## Models
-
-**Generation** — answers the user prompt in parallel:
-
-- `openai/gpt-4o-mini`
-- `anthropic/claude-3-haiku`
-- `google/gemini-2.5-flash-lite`
-
-**Evaluation** — one model per arbiter:
-
-- SCEPTIC -> `openai/gpt-5.4-nano`
-- EXPERT -> `anthropic/claude-sonnet-4-5`
-- LOGICIAN -> `mistralai/mistral-large-2411`
-
-All models are called through OpenRouter. You can swap any model in `src/config.py`.
-
----
+- `requests`
+- `python-dotenv`
+- `colorama`
+- `pytest`
 
 ## Setup
 
-**Requirements:** Python 3.12+, an OpenRouter API key.
+Create and activate a virtual environment:
 
 ```bash
 python3 -m venv venv
 source venv/bin/activate
-
-pip install -r requirements.txt
-
-cp .env.example .env
-# Edit .env and set OPENROUTER_API_KEY=sk-or-v1-...
 ```
 
----
+On Windows PowerShell:
+
+```powershell
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+```
+
+Create your environment file:
+
+```bash
+cp .env.example .env
+```
+
+Then edit `.env`:
+
+```env
+OPENROUTER_API_KEY=sk-or-v1-your-real-key
+```
+
+`src/config.py` validates that the key exists and matches the expected OpenRouter key format.
 
 ## Usage
+
+Run the interactive CLI:
 
 ```bash
 python3 main.py
 ```
 
-You'll be prompted for the run configuration:
-
-```text
-  Prompt : What causes inflation?
-  Report name (optional): inflation_test
-  Threshold (1-100, default 60): 75
-  Max retries (default 3): 3
-  Generation models k (2-3, default 3): 3
-  Evaluation arbiters m (1-3, default 3): 3
-  Max token budget (blank = none) :
-```
+You will be prompted for:
 
 | Input | Description | Default |
 |---|---|---|
-| Prompt | The question or task | required |
-| Report name | Optional filename for the Markdown report | auto timestamp |
-| Threshold | Minimum score (0-100) to accept a result | 60 |
-| Max retries | How many generation rounds before giving up | 3 |
-| k | Number of generation models to use | 3 |
-| m | Number of evaluator arbiters to use | 3 |
-| Max token budget | Optional token cap for the whole run | none |
+| Prompt | The question or task to evaluate | Required |
+| Report name | Optional Markdown report filename | Timestamped filename |
+| Threshold | Minimum final score required to accept a result | `60` |
+| Max retries | Number of full council attempts before failing | `3` |
+| Generation models k | Number of generation models to use | All configured models |
+| Evaluation arbiters m | Number of arbiter personas to use | All configured arbiters |
+| Max token budget | Optional total token cap | None |
 
-### Example Output
+Example:
 
 ```text
-  Score       ████████████████████████████░░  94/100
-  Attempts    1
-  Elapsed     10.95s
-  Hallucin.   NONE
-  Models      k=3  m=3
-  Sem Ent.    0.0
-  Agreement   1.0
-  Tokens      14290
-  Cost        $0.0283
-
-  ── Arbiter scores ──────────────────────────────────────
-  SCEPTIC      █████████░  9.5/10
-  EXPERT       ████████░░  8.75/10
-  LOGICIAN     ██████████  10.0/10
-
-  ID     : Response_A
-  Model  : google/gemini-2.5-flash-lite
-
-  [response text]
+Prompt : What causes inflation?
+Report name (optional): inflation_test
+Threshold (1-100, default 60): 75
+Max retries (default 3): 3
+Generation models k (2-3, default 3): 3
+Evaluation arbiters m (1-3, default 3): 3
+Max token budget (blank = none) :
 ```
 
----
+## Output
+
+The terminal prints a compact summary:
+
+```text
+Score       [final score]/100
+Attempts    [attempt count]
+Elapsed     [seconds]
+Hallucin.   YES or NONE
+Models      k=[generation count] m=[arbiter count]
+Sem Ent.    [normalized entropy]
+Agreement   [agreement score]
+Tokens      [total tokens]
+Cost        [estimated cost]
+```
+
+Each successful run saves a Markdown report in `results/`. Report filenames are either:
+
+- `raxi_court_output_YYYYMMDD_HHMMSS.md`
+- `[your_report_name].md`
+
+Reports include:
+
+- Run summary
+- Original prompt
+- Best response and original source model
+- All anonymized responses
+- Response scoreboard
+- Arbiter evaluations for the winning response
+- Aggregation details
+- Hallucination policy result
+- Semantic entropy clusters
+- API usage and estimated cost
 
 ## Configuration
 
-All tunable settings live in `src/config.py`.
+Most runtime settings live in `src/config.py`.
 
 ```python
-GENERATION_MODELS = [...]       # LLMs that generate responses
-EVALUATION_MODELS = [...]       # LLMs assigned to each arbiter
+GENERATION_MODELS = [
+    "openai/gpt-4o-mini",
+    "anthropic/claude-3-haiku",
+    "google/gemini-2.5-flash-lite",
+]
 
+EVALUATION_MODELS = [
+    "openai/gpt-5.4-nano",
+    "anthropic/claude-sonnet-4-5",
+    "mistralai/mistral-large-2411",
+]
+
+EVALUATION_PERSONAS = [
+    "sceptic",
+    "expert",
+    "logician",
+]
+```
+
+Scoring weights are also configured there:
+
+```python
 ARBITER_WEIGHTS = {
-    "sceptic":  0.5,
-    "expert":   0.25,
+    "sceptic": 0.5,
+    "expert": 0.25,
     "logician": 0.25,
 }
 
 DIMENSION_WEIGHTS = {
-    "factual_accuracy":  0.5,
-    "completeness":      0.25,
+    "factual_accuracy": 0.5,
+    "completeness": 0.25,
     "reasoning_quality": 0.25,
 }
-
-HALLUCINATION_POLICY = "any"
-HALLUCINATION_WEIGHT_THRESHOLD = 0.5
-
-GENERATION_MAX_TOKENS = 1000
-EVALUATION_MAX_TOKENS = 1800
-SEMANTIC_ENTROPY_MAX_TOKENS = 500
-REQUEST_TIMEOUT = 30
-MIN_VALID_ARBITERS = 2
-OUTPUT_DIR = "./results"
 ```
 
-Arbiter personas are plain-text system prompts in `prompts/`. Edit them to change how each arbiter evaluates.
+Other configurable values include request timeout, API retry counts, max output tokens, semantic entropy model, hallucination policy, output directory, and model pricing estimates.
 
----
+## Arbiter Prompts
 
-## Safety Handling
+Arbiter behavior is controlled by plain-text prompt files:
 
-Before generation starts, the prompt is checked for harmful or dangerous instructional requests. If the prompt is blocked, the council does not call generation or evaluation models. Instead, it returns and saves a structured safety response.
-
-```json
-{
-  "tag": "harmful_or_dangerous_prompt",
-  "title": "Weapons or explosives request",
-  "category": "weapons_or_explosives",
-  "blocked": true,
-  "reason": "The prompt appears to request harmful or dangerous assistance, so the council run was not started."
-}
+```text
+prompts/sceptic.txt
+prompts/expert.txt
+prompts/logician.txt
+prompts/semantic_entropy.txt
 ```
 
-Blocked prompts still create a Markdown report in `results/` so the run is auditable.
-
----
-
-## Output Reports
-
-Every successful run saves a full report to `results/`. If no report name is supplied, the filename uses `raxi_court_output_TIMESTAMP.md`. If a custom report name is supplied, that sanitized name is used directly.
-
-Reports contain:
-
-- Run metadata
-- The original prompt
-- The best response with source model revealed
-- All generated responses
-- Full evaluation from each arbiter
-- Aggregation summary
-- Hallucination flags and details
-- Semantic entropy and agreement metrics
-- API usage, token counts, and estimated cost
+Edit these files to change evaluation style without touching the Python code.
 
 ## Project Structure
 
 ```text
 raxi-council/
-├── main.py              # Entry point: input, orchestration, display
-├── src/
-│   ├── config.py        # Models, weights, paths, constants
-│   ├── agents.py        # Generation and evaluation API calls
-│   ├── evaluator.py     # Pipeline orchestration
-│   ├── aggregator.py    # Scoring and best-response selection
-│   ├── semantic_entropy.py
-│   ├── safety.py        # Harmful prompt classification
-│   └── output.py        # Markdown report generation
-├── prompts/
-│   ├── sceptic.txt
-│   ├── expert.txt
-│   ├── logician.txt
-│   └── semantic_entropy.txt
-├── results/             # Saved evaluation reports
-├── .env.example
-└── requirements.txt
+|-- main.py                  # Interactive CLI entry point and terminal output
+|-- requirements.txt         # Python dependencies
+|-- .env.example             # Environment variable template
+|-- prompts/
+|   |-- sceptic.txt          # Sceptic arbiter prompt
+|   |-- expert.txt           # Expert arbiter prompt
+|   |-- logician.txt         # Logician arbiter prompt
+|   `-- semantic_entropy.txt # Semantic clustering prompt
+|-- results/
+|   `-- .gitkeep             # Keeps results folder in the repo
+`-- src/
+    |-- agents.py            # OpenRouter calls, response generation, evaluation parsing
+    |-- aggregator.py        # Weighted scoring and best-response selection
+    |-- config.py            # Models, weights, API settings, pricing, paths
+    |-- evaluator.py         # Main council execution flow
+    |-- output.py            # Markdown report formatting and saving
+    |-- safety.py            # Basic harmful-prompt filtering
+    `-- semantic_entropy.py  # Semantic clustering and entropy metrics
 ```
 
----
+## Important Notes
 
-## Semantic Entropy
-
-The system performs semantic clustering across candidate responses after evaluation. This produces:
-
-- `semantic_entropy`: normalized disagreement across candidate meanings
-- `agreement_score`: inverse agreement-style score
-- `semantic_cluster_count`: number of semantic clusters
-- `dominant_cluster_probability`: how much response-score mass belongs to the largest cluster
-
-These fields help measure whether increasing `k` produces genuinely different answers or repeated versions of the same answer.
+- This is currently an interactive CLI, not an installable Python package.
+- The safety filter is intentionally minimal and regex-based.
+- Semantic entropy uses LLM-assisted clustering plus a standard entropy calculation.
+- Model pricing is estimated from the static values in `src/config.py`.
+- Generated reports are ignored by Git, while `results/.gitkeep` keeps the folder present.
+- Do not commit `.env`, virtual environments, or generated report files.
