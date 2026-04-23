@@ -4,6 +4,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def _env_flag(name, default=True):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() not in {"0", "false", "no", "off"}
+
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 
@@ -78,6 +85,9 @@ RETRY_BACKOFF_SECONDS = 1.5
 MAX_RETRY_BACKOFF_SECONDS = 8
 MIN_VALID_ARBITERS = 2
 OUTPUT_DIR      = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "results")
+RESPONSE_CACHE_ENABLED = _env_flag("RAXI_RESPONSE_CACHE", default=True)
+RESPONSE_CACHE_VERSION = 1
+RESPONSE_CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".cache", "responses")
 SEMANTIC_ENTROPY_MODEL = "openai/gpt-5.4-nano"
 SEMANTIC_ENTROPY_WARNING_THRESHOLD = 0.6
 TOKEN_ESTIMATION_CHARS_PER_TOKEN = 4

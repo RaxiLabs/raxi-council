@@ -187,6 +187,10 @@ def format_results(results):
         lines.append(f"- Estimated attempt tokens: `{latest_attempt_estimate.get('estimated_total_tokens', 'N/A')}`")
         lines.append(f"- Estimated attempt cost: `{_format_currency(latest_attempt_estimate.get('estimated_cost_usd'))}`")
     lines.append(f"- Estimated API cost: `{_format_currency(usage.get('total_cost_usd'))}`")
+    if usage.get("cache_hits"):
+        lines.append(f"- Cache hits: `{usage.get('cache_hits', 0)}`")
+        lines.append(f"- Cached token savings: `{usage.get('cached_total_tokens', 0)}`")
+        lines.append(f"- Cached cost savings: `{_format_currency(usage.get('cached_cost_usd'))}`")
     lines.append("")
 
     lines.append("## Response Scoreboard")
@@ -316,10 +320,16 @@ def format_results(results):
     lines.append(f"- Total prompt tokens: `{usage.get('total_prompt_tokens', 'N/A')}`")
     lines.append(f"- Total completion tokens: `{usage.get('total_completion_tokens', 'N/A')}`")
     lines.append(f"- Total tokens: `{usage.get('total_tokens', 'N/A')}`")
+    lines.append(f"- Live API calls: `{usage.get('api_calls', 0)}`")
+    lines.append(f"- Cache hits: `{usage.get('cache_hits', 0)}`")
+    lines.append(f"- Cached prompt token savings: `{usage.get('cached_prompt_tokens', 0)}`")
+    lines.append(f"- Cached completion token savings: `{usage.get('cached_completion_tokens', 0)}`")
+    lines.append(f"- Cached token savings: `{usage.get('cached_total_tokens', 0)}`")
     if usage.get("max_total_tokens") is not None:
         lines.append(f"- Token budget: `{usage['max_total_tokens']}`")
         lines.append(f"- Remaining tokens: `{usage.get('remaining_tokens', 'N/A')}`")
     lines.append(f"- Estimated cost: `{_format_currency(usage.get('total_cost_usd'))}`")
+    lines.append(f"- Cached cost savings: `{_format_currency(usage.get('cached_cost_usd'))}`")
     lines.append("")
 
     estimates = usage.get("estimates") or []
@@ -346,12 +356,14 @@ def format_results(results):
         )
         lines.append("")
 
-    lines.append("| Model | Prompt Tokens | Completion Tokens | Total Tokens | Cost |")
-    lines.append("|---|---:|---:|---:|---:|")
+    lines.append("| Model | Cached | Prompt Tokens | Completion Tokens | Total Tokens | Cost | Saved Tokens | Saved Cost |")
+    lines.append("|---|---|---:|---:|---:|---:|---:|---:|")
     for call in usage.get("calls", []):
         lines.append(
-            f"| {_markdown_inline(call['model'])} | {call['prompt_tokens']} | {call['completion_tokens']} | "
-            f"{call['total_tokens']} | {_format_currency(call['cost_usd'])} |"
+            f"| {_markdown_inline(call['model'])} | {call.get('cached', False)} | {call.get('prompt_tokens', 0)} | "
+            f"{call.get('completion_tokens', 0)} | {call.get('total_tokens', 0)} | "
+            f"{_format_currency(call.get('cost_usd'))} | {call.get('cached_total_tokens', 0)} | "
+            f"{_format_currency(call.get('cached_cost_usd'))} |"
         )
     lines.append("")
 

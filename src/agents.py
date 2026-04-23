@@ -1,11 +1,12 @@
 import json
+import hashlib
 import time
 import requests
-import random as r
 import threading
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from colorama import Fore, init
+from src.cache import get_cached_result, store_cached_result
 from src.config import (
     PROMPT_PATHS,
     OPENROUTER_ENDPOINT,
@@ -27,6 +28,8 @@ from src.config import (
 init(autoreset=True)
 
 _thread_local = threading.local()
+GENERATION_CACHE_NAMESPACE = "generation_response"
+EVALUATION_CACHE_NAMESPACE = "evaluation_payload"
 
 
 def _get_session():
@@ -226,6 +229,32 @@ def build_initial_evaluation_prompt(user_prompt, anonymised_responses):
         + "\n\nReturn JSON in this exact top-level shape:\n"
         + _build_response_schema_hint(response_ids)
     )
+
+
+def build_generation_cache_request(model, user_prompt, max_tokens=GENERATION_MAX_TOKENS):
+    return {
+        "max_tokens": max_tokens,
+        "model": model,
+        "system_prompt": GENERATION_SYSTEM_PROMPT,
+        "user_prompt": user_prompt,
+    }
+
+
+def build_evaluation_cache_request(
+    user_prompt,
+    anonymised_responses,
+    persona,
+    model,
+    max_tokens=EVALUATION_MAX_TOKENS,
+):
+    return {
+        "max_tokens": max_tokens,
+        "model": model,
+        "persona": persona,
+        "response_ids": [item["id"] for item in anonymised_responses],
+        "system_prompt": load_prompt(persona),
+        "user_prompt": build_evaluation_prompt(user_prompt, anonymised_responses),
+    }
 
 
 def _validate_dimension_score(persona, dimension, value):
@@ -506,19 +535,36 @@ def generate_responses(user_prompt, generation_models=None):
     selected_generation_models = generation_models or GENERATION_MODELS
 
     with ThreadPoolExecutor(max_workers=len(selected_generation_models)) as executor:
-        futures = {
-            executor.submit(call_llm, model, GENERATION_SYSTEM_PROMPT, user_prompt, GENERATION_MAX_TOKENS): model
-            for model in selected_generation_models
-        }
+        futures = {}
+
+        for model in selected_generation_models:
+            cache_request = build_generation_cache_request(model, user_prompt, GENERATION_MAX_TOKENS)
+            cached_response, cached_usage = get_cached_result(GENERATION_CACHE_NAMESPACE, cache_request)
+
+            if cached_response is not None:
+                responses.append({"model": model, "response": cached_response})
+                usage_log.extend(cached_usage)
+                print(Fore.CYAN + f"    ↺  {model} (cache)")
+                continue
+
+            futures[
+                executor.submit(call_llm, model, GENERATION_SYSTEM_PROMPT, user_prompt, GENERATION_MAX_TOKENS)
+            ] = (model, cache_request)
 
         for future in as_completed(futures):
-            model = futures[future]
+            model, cache_request = futures[future]
             try:
                 response, usage = future.result()
                 if response:
                     responses.append({"model": model, "response": response})
                     if usage:
                         usage_log.append(usage)
+                    store_cached_result(
+                        GENERATION_CACHE_NAMESPACE,
+                        cache_request,
+                        response,
+                        [usage] if usage else [],
+                    )
                     print(Fore.GREEN + f"    ✓  {model}")
                 else:
                     print(Fore.RED + f"    ✗  {model}")
@@ -528,9 +574,13 @@ def generate_responses(user_prompt, generation_models=None):
     return responses, usage_log
 
 
-def anonymise_and_shuffle(responses):
-    shuffled = responses.copy()
-    r.shuffle(shuffled)
+def _anonymised_sort_key(user_prompt, item):
+    payload = f"{user_prompt}\n{item['model']}\n{item['response']}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def anonymise_and_shuffle(responses, user_prompt=""):
+    shuffled = sorted(responses, key=lambda item: _anonymised_sort_key(user_prompt, item))
 
     anonymised = []
 
@@ -541,7 +591,7 @@ def anonymise_and_shuffle(responses):
             "_original_model": item["model"]
         })
 
-    print(Fore.YELLOW + "  Responses anonymised and shuffled.")
+    print(Fore.YELLOW + "  Responses anonymised and ordered.")
 
     return anonymised
 
@@ -568,7 +618,7 @@ def evaluate_responses(
     usage_log = []
     schema_hint = _build_response_schema_hint(expected_response_ids)
 
-    def evaluate_persona(persona, model):
+    def evaluate_persona(persona, model, cache_request):
         sys_prompt = load_prompt(persona)
         attempt_prompt = (
             evaluation_prompt
@@ -595,6 +645,12 @@ def evaluate_responses(
             try:
                 parsed = _extract_json_object(raw)
                 validated = _validate_evaluation_payload(persona, parsed, expected_response_ids)
+                store_cached_result(
+                    EVALUATION_CACHE_NAMESPACE,
+                    cache_request,
+                    validated,
+                    usage_entries,
+                )
                 return persona, validated, usage_entries
             except json.JSONDecodeError:
                 preview = raw.strip().replace("\n", " ")[:200]
@@ -626,10 +682,26 @@ def evaluate_responses(
                 )
 
     with ThreadPoolExecutor(max_workers=len(models)) as executor:
-        futures = {
-            executor.submit(evaluate_persona, persona, models[i]): persona
-            for i, persona in enumerate(personas)
-        }
+        futures = {}
+
+        for i, persona in enumerate(personas):
+            model = models[i]
+            cache_request = build_evaluation_cache_request(
+                user_prompt,
+                anonymised_responses,
+                persona,
+                model,
+                EVALUATION_MAX_TOKENS,
+            )
+            cached_result, cached_usage = get_cached_result(EVALUATION_CACHE_NAMESPACE, cache_request)
+
+            if cached_result is not None:
+                evaluations[persona] = cached_result
+                usage_log.extend(cached_usage)
+                print(Fore.CYAN + f"    ↺  {persona.upper()} (cache)")
+                continue
+
+            futures[executor.submit(evaluate_persona, persona, model, cache_request)] = persona
 
         for future in as_completed(futures):
             try:

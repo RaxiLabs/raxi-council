@@ -1,6 +1,13 @@
 import math
 
-from src.agents import build_initial_evaluation_prompt, load_prompt
+from src.agents import (
+    EVALUATION_CACHE_NAMESPACE,
+    GENERATION_CACHE_NAMESPACE,
+    anonymise_and_shuffle,
+    build_evaluation_cache_request,
+    build_generation_cache_request,
+)
+from src.cache import get_cached_result, has_cached_result
 from src.config import (
     EVALUATION_MAX_TOKENS,
     GENERATION_MAX_TOKENS,
@@ -11,7 +18,10 @@ from src.config import (
     TOKEN_ESTIMATION_MESSAGE_OVERHEAD,
     TOKEN_ESTIMATION_SAFETY_MARGIN,
 )
-from src.semantic_entropy import build_semantic_entropy_prompt
+from src.semantic_entropy import (
+    SEMANTIC_ENTROPY_CACHE_NAMESPACE,
+    build_semantic_entropy_cache_request,
+)
 
 
 GENERATION_MIN_COMPLETION_TOKENS = 180
@@ -47,7 +57,33 @@ def _with_margin(value):
     return math.ceil(value * TOKEN_ESTIMATION_SAFETY_MARGIN)
 
 
-def _estimate_call(stage, model, system_prompt, user_prompt, expected_completion_tokens, max_completion_tokens):
+def _estimate_call(
+    stage,
+    model,
+    system_prompt,
+    user_prompt,
+    expected_completion_tokens,
+    max_completion_tokens,
+    cache_namespace=None,
+    cache_request=None,
+):
+    cache_hit = bool(
+        cache_namespace
+        and cache_request
+        and has_cached_result(cache_namespace, cache_request)
+    )
+
+    if cache_hit:
+        return {
+            "stage": stage,
+            "model": model,
+            "estimated_prompt_tokens": 0,
+            "estimated_completion_tokens": 0,
+            "estimated_total_tokens": 0,
+            "estimated_cost_usd": 0.0,
+            "cache_hit": True,
+        }
+
     prompt_tokens = _estimate_chat_prompt_tokens(system_prompt, user_prompt)
     completion_tokens = min(max_completion_tokens, max(0, int(expected_completion_tokens)))
     total_tokens = prompt_tokens + completion_tokens
@@ -59,6 +95,7 @@ def _estimate_call(stage, model, system_prompt, user_prompt, expected_completion
         "estimated_completion_tokens": completion_tokens,
         "estimated_total_tokens": _with_margin(total_tokens),
         "estimated_cost_usd": round(_estimate_call_cost(model, prompt_tokens, completion_tokens), 6),
+        "cache_hit": False,
     }
 
 
@@ -77,6 +114,7 @@ def _build_stage_estimate(stage, calls):
         "estimated_completion_tokens": completion_tokens,
         "estimated_total_tokens": total_tokens,
         "estimated_cost_usd": round(estimated_cost, 6),
+        "cache_hits": sum(1 for call in calls if call.get("cache_hit")),
         "calls": calls,
     }
 
@@ -99,6 +137,8 @@ def estimate_generation_stage(user_prompt, generation_models):
             user_prompt=user_prompt,
             expected_completion_tokens=completion_tokens,
             max_completion_tokens=GENERATION_MAX_TOKENS,
+            cache_namespace=GENERATION_CACHE_NAMESPACE,
+            cache_request=build_generation_cache_request(model, user_prompt, GENERATION_MAX_TOKENS),
         )
         for model in generation_models
     ]
@@ -112,18 +152,27 @@ def estimate_evaluation_stage(user_prompt, anonymised_responses, evaluation_pers
         EVALUATION_BASE_COMPLETION_TOKENS
         + response_count * EVALUATION_COMPLETION_TOKENS_PER_RESPONSE,
     )
-    evaluation_prompt = build_initial_evaluation_prompt(user_prompt, anonymised_responses)
-    calls = [
-        _estimate_call(
-            stage="evaluation",
-            model=model,
-            system_prompt=load_prompt(persona),
-            user_prompt=evaluation_prompt,
-            expected_completion_tokens=completion_tokens,
-            max_completion_tokens=EVALUATION_MAX_TOKENS,
+    calls = []
+    for persona, model in zip(evaluation_personas, evaluation_models):
+        cache_request = build_evaluation_cache_request(
+            user_prompt,
+            anonymised_responses,
+            persona,
+            model,
+            EVALUATION_MAX_TOKENS,
         )
-        for persona, model in zip(evaluation_personas, evaluation_models)
-    ]
+        calls.append(
+            _estimate_call(
+                stage="evaluation",
+                model=model,
+                system_prompt=cache_request["system_prompt"],
+                user_prompt=cache_request["user_prompt"],
+                expected_completion_tokens=completion_tokens,
+                max_completion_tokens=EVALUATION_MAX_TOKENS,
+                cache_namespace=EVALUATION_CACHE_NAMESPACE,
+                cache_request=cache_request,
+            )
+        )
     return _build_stage_estimate("evaluation", calls)
 
 
@@ -134,14 +183,17 @@ def estimate_semantic_entropy_stage(user_prompt, anonymised_responses, semantic_
         SEMANTIC_BASE_COMPLETION_TOKENS
         + response_count * SEMANTIC_COMPLETION_TOKENS_PER_RESPONSE,
     )
+    cache_request = build_semantic_entropy_cache_request(user_prompt, anonymised_responses)
     calls = [
         _estimate_call(
             stage="semantic_entropy",
             model=semantic_model,
-            system_prompt=load_prompt("semantic_entropy"),
-            user_prompt=build_semantic_entropy_prompt(user_prompt, anonymised_responses),
+            system_prompt=cache_request["system_prompt"],
+            user_prompt=cache_request["user_prompt"],
             expected_completion_tokens=completion_tokens,
             max_completion_tokens=SEMANTIC_ENTROPY_MAX_TOKENS,
+            cache_namespace=SEMANTIC_ENTROPY_CACHE_NAMESPACE,
+            cache_request=cache_request,
         )
     ]
     return _build_stage_estimate("semantic_entropy", calls)
@@ -154,20 +206,37 @@ def estimate_attempt_budget(
     evaluation_models,
     semantic_model,
 ):
-    estimated_response_tokens = _estimate_generation_completion(user_prompt)
-    placeholder_response = "x" * (estimated_response_tokens * TOKEN_ESTIMATION_CHARS_PER_TOKEN)
-    placeholder_responses = [
-        {
-            "id": f"Response_{chr(65 + index)}",
-            "response": placeholder_response,
-        }
-        for index in range(len(generation_models))
-    ]
+    cached_generation_responses = []
+    for model in generation_models:
+        cached_response, _ = get_cached_result(
+            GENERATION_CACHE_NAMESPACE,
+            build_generation_cache_request(model, user_prompt, GENERATION_MAX_TOKENS),
+        )
+        if cached_response is None:
+            cached_generation_responses = []
+            break
+        cached_generation_responses.append({
+            "model": model,
+            "response": cached_response,
+        })
+
+    if cached_generation_responses:
+        downstream_responses = anonymise_and_shuffle(cached_generation_responses, user_prompt)
+    else:
+        estimated_response_tokens = _estimate_generation_completion(user_prompt)
+        placeholder_response = "x" * (estimated_response_tokens * TOKEN_ESTIMATION_CHARS_PER_TOKEN)
+        downstream_responses = [
+            {
+                "id": f"Response_{chr(65 + index)}",
+                "response": placeholder_response,
+            }
+            for index in range(len(generation_models))
+        ]
 
     stages = [
         estimate_generation_stage(user_prompt, generation_models),
-        estimate_evaluation_stage(user_prompt, placeholder_responses, evaluation_personas, evaluation_models),
-        estimate_semantic_entropy_stage(user_prompt, placeholder_responses, semantic_model),
+        estimate_evaluation_stage(user_prompt, downstream_responses, evaluation_personas, evaluation_models),
+        estimate_semantic_entropy_stage(user_prompt, downstream_responses, semantic_model),
     ]
 
     return {

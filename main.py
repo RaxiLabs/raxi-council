@@ -153,6 +153,9 @@ def display_results(results):
     total_tokens = usage.get("total_tokens", "N/A")
     total_cost   = usage.get("total_cost_usd")
     token_budget = usage.get("max_total_tokens")
+    cache_hits   = usage.get("cache_hits", 0)
+    cached_tokens = usage.get("cached_total_tokens", 0)
+    cached_cost = usage.get("cached_cost_usd", 0.0)
     cost_str     = f"${total_cost:.4f}" if total_cost is not None else "N/A"
     run_config = results.get("run_config", {})
     semantic_entropy = results.get("aggregation", {}).get("semantic_entropy")
@@ -175,6 +178,8 @@ def display_results(results):
     if token_budget is not None:
         print(Fore.WHITE  + f"  Budget      {token_budget}")
     print(Fore.WHITE  + f"  Cost        {cost_str}")
+    if cache_hits:
+        print(Fore.WHITE  + f"  Cache       {cache_hits} hit(s), saved {cached_tokens} tokens, ${cached_cost:.4f}")
 
     agg = results['aggregation']['raw_scores']
     print(Fore.YELLOW + "\n  ── Arbiter scores ──────────────────────────────────────")

@@ -2,9 +2,12 @@ import json
 import math
 from colorama import Fore, init
 from src.agents import call_llm, _extract_json_object, load_prompt
+from src.cache import get_cached_result, store_cached_result
 from src.config import SEMANTIC_ENTROPY_MAX_TOKENS, SEMANTIC_ENTROPY_MODEL
 
 init(autoreset=True)
+
+SEMANTIC_ENTROPY_CACHE_NAMESPACE = "semantic_entropy_clusters"
 
 def _normalize_zero(value, precision=4):
     rounded = round(value, precision)
@@ -106,6 +109,15 @@ def build_semantic_entropy_prompt(user_prompt, anonymised_responses):
     )
 
 
+def build_semantic_entropy_cache_request(user_prompt, anonymised_responses):
+    return {
+        "max_tokens": SEMANTIC_ENTROPY_MAX_TOKENS,
+        "model": SEMANTIC_ENTROPY_MODEL,
+        "system_prompt": load_prompt("semantic_entropy"),
+        "user_prompt": build_semantic_entropy_prompt(user_prompt, anonymised_responses),
+    }
+
+
 def analyse_semantic_entropy(user_prompt, anonymised_responses, response_scores):
     if not anonymised_responses:
         return None, []
@@ -118,13 +130,19 @@ def analyse_semantic_entropy(user_prompt, anonymised_responses, response_scores)
         return metrics, []
 
     response_ids = [item["id"] for item in anonymised_responses]
-    prompt = build_semantic_entropy_prompt(user_prompt, anonymised_responses)
-    system_prompt = load_prompt("semantic_entropy")
+    cache_request = build_semantic_entropy_cache_request(user_prompt, anonymised_responses)
+    cached_clusters, cached_usage = get_cached_result(SEMANTIC_ENTROPY_CACHE_NAMESPACE, cache_request)
+
+    if cached_clusters is not None:
+        metrics = _build_semantic_entropy_metrics(cached_clusters, response_scores)
+        metrics["method"] = "llm_semantic_clustering_cached"
+        metrics["model"] = SEMANTIC_ENTROPY_MODEL
+        return metrics, cached_usage
 
     raw, usage = call_llm(
         model=SEMANTIC_ENTROPY_MODEL,
-        system_prompt=system_prompt,
-        user_prompt=prompt,
+        system_prompt=cache_request["system_prompt"],
+        user_prompt=cache_request["user_prompt"],
         max_tokens=SEMANTIC_ENTROPY_MAX_TOKENS,
     )
 
@@ -141,6 +159,12 @@ def analyse_semantic_entropy(user_prompt, anonymised_responses, response_scores)
     try:
         parsed = _extract_json_object(raw)
         clusters = _validate_clusters(parsed, response_ids)
+        store_cached_result(
+            SEMANTIC_ENTROPY_CACHE_NAMESPACE,
+            cache_request,
+            clusters,
+            [usage] if usage else [],
+        )
         metrics = _build_semantic_entropy_metrics(clusters, response_scores)
         metrics["method"] = "llm_semantic_clustering"
         metrics["model"] = SEMANTIC_ENTROPY_MODEL

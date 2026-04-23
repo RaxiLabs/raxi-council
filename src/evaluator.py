@@ -15,6 +15,7 @@ from src.config import (
     EVALUATION_PERSONAS,
     HALLUCINATION_POLICY,
     HALLUCINATION_WEIGHT_THRESHOLD,
+    RESPONSE_CACHE_ENABLED,
     SEMANTIC_ENTROPY_MODEL,
     SEMANTIC_ENTROPY_WARNING_THRESHOLD,
 )
@@ -71,9 +72,14 @@ def _print_budget_estimate(estimate, usage_summary, max_total_tokens):
     stage = estimate["stage"].replace("_", " ")
     estimated_tokens = estimate["estimated_total_tokens"]
     estimated_cost = _format_estimated_cost(estimate.get("estimated_cost_usd"))
+    cache_hits = estimate.get("cache_hits", 0)
+    cache_suffix = f"; cache hits {cache_hits}" if cache_hits else ""
 
     if max_total_tokens is None:
-        print(Fore.WHITE + f"  [budget] {stage}: estimated {_format_tokens(estimated_tokens)} tokens ({estimated_cost}).")
+        print(
+            Fore.WHITE
+            + f"  [budget] {stage}: estimated {_format_tokens(estimated_tokens)} tokens ({estimated_cost}){cache_suffix}."
+        )
         return
 
     remaining = max_total_tokens - usage_summary["total_tokens"]
@@ -81,7 +87,8 @@ def _print_budget_estimate(estimate, usage_summary, max_total_tokens):
     print(
         Fore.WHITE
         + f"  [budget] {stage}: estimated {_format_tokens(estimated_tokens)} tokens ({estimated_cost}); "
-        + f"remaining {_format_tokens(remaining)}; projected {_format_tokens(projected)}/{_format_tokens(max_total_tokens)}."
+        + f"remaining {_format_tokens(remaining)}; projected {_format_tokens(projected)}/{_format_tokens(max_total_tokens)}"
+        + f"{cache_suffix}."
     )
 
 
@@ -104,6 +111,13 @@ def _estimated_budget_exceeded(usage_summary, estimate, max_total_tokens):
 
 def _empty_usage_summary(max_total_tokens=None):
     return {
+        "api_calls": 0,
+        "cache_enabled": RESPONSE_CACHE_ENABLED,
+        "cache_hits": 0,
+        "cached_completion_tokens": 0,
+        "cached_cost_usd": 0.0,
+        "cached_prompt_tokens": 0,
+        "cached_total_tokens": 0,
         "calls": [],
         "estimates": [],
         "total_prompt_tokens": 0,
@@ -120,11 +134,20 @@ def _extend_usage_summary(usage_summary, new_calls):
         return usage_summary
 
     usage_summary["calls"].extend(new_calls)
-    usage_summary["total_prompt_tokens"] += sum(call["prompt_tokens"] for call in new_calls)
-    usage_summary["total_completion_tokens"] += sum(call["completion_tokens"] for call in new_calls)
-    usage_summary["total_tokens"] += sum(call["total_tokens"] for call in new_calls)
+    usage_summary["api_calls"] += sum(1 for call in new_calls if not call.get("cached"))
+    usage_summary["cache_hits"] += sum(1 for call in new_calls if call.get("cached"))
+    usage_summary["cached_prompt_tokens"] += sum(call.get("cached_prompt_tokens", 0) for call in new_calls)
+    usage_summary["cached_completion_tokens"] += sum(call.get("cached_completion_tokens", 0) for call in new_calls)
+    usage_summary["cached_total_tokens"] += sum(call.get("cached_total_tokens", 0) for call in new_calls)
+    usage_summary["cached_cost_usd"] = round(
+        usage_summary["cached_cost_usd"] + sum(call.get("cached_cost_usd", 0.0) for call in new_calls),
+        4,
+    )
+    usage_summary["total_prompt_tokens"] += sum(call.get("prompt_tokens", 0) for call in new_calls)
+    usage_summary["total_completion_tokens"] += sum(call.get("completion_tokens", 0) for call in new_calls)
+    usage_summary["total_tokens"] += sum(call.get("total_tokens", 0) for call in new_calls)
     usage_summary["total_cost_usd"] = round(
-        usage_summary["total_cost_usd"] + sum(call["cost_usd"] for call in new_calls),
+        usage_summary["total_cost_usd"] + sum(call.get("cost_usd", 0.0) for call in new_calls),
         4,
     )
 
@@ -306,7 +329,7 @@ def run_council(
             print(Fore.RED + "  ✗ Insufficient responses. Retrying...")
             continue
 
-        anonymised = anonymise_and_shuffle(responses)
+        anonymised = anonymise_and_shuffle(responses, user_prompt)
 
         evaluation_estimate = _record_budget_estimate(
             usage_summary,
@@ -386,6 +409,12 @@ def run_council(
 
         print(Fore.GREEN + f"\n  ✓ Completed in {elapsed}s  ·  Final score: {final_score}/100")
         print(Fore.WHITE  + f"  ✦ API usage: {usage_summary['total_tokens']} tokens  ·  ${usage_summary['total_cost_usd']:.4f}")
+        if usage_summary["cache_hits"]:
+            print(
+                Fore.WHITE
+                + f"  ✦ Cache: {usage_summary['cache_hits']} hit(s)  ·  saved "
+                + f"{usage_summary['cached_total_tokens']} tokens  ·  ${usage_summary['cached_cost_usd']:.4f}"
+            )
 
         results = _build_results(
             user_prompt=user_prompt,
