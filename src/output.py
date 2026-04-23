@@ -17,6 +17,10 @@ def _format_currency(amount):
     return f"${amount:.4f}" if amount is not None else "N/A"
 
 
+def _format_token_count(amount):
+    return str(int(amount)) if amount is not None else "N/A"
+
+
 def _markdown_inline(text):
     if text is None:
         return "N/A"
@@ -173,6 +177,15 @@ def format_results(results):
     if usage.get("max_total_tokens") is not None:
         lines.append(f"- Token budget: `{usage['max_total_tokens']}`")
         lines.append(f"- Remaining tokens: `{usage.get('remaining_tokens', 'N/A')}`")
+    attempt_estimates = [
+        estimate
+        for estimate in usage.get("estimates", [])
+        if estimate.get("stage") == "attempt"
+    ]
+    if attempt_estimates:
+        latest_attempt_estimate = attempt_estimates[-1]
+        lines.append(f"- Estimated attempt tokens: `{latest_attempt_estimate.get('estimated_total_tokens', 'N/A')}`")
+        lines.append(f"- Estimated attempt cost: `{_format_currency(latest_attempt_estimate.get('estimated_cost_usd'))}`")
     lines.append(f"- Estimated API cost: `{_format_currency(usage.get('total_cost_usd'))}`")
     lines.append("")
 
@@ -308,6 +321,31 @@ def format_results(results):
         lines.append(f"- Remaining tokens: `{usage.get('remaining_tokens', 'N/A')}`")
     lines.append(f"- Estimated cost: `{_format_currency(usage.get('total_cost_usd'))}`")
     lines.append("")
+
+    estimates = usage.get("estimates") or []
+    if estimates:
+        lines.append("## Token Budget Estimates")
+        lines.append("")
+        lines.append("| Attempt | Stage | Status | Estimated Tokens | Actual Tokens | Estimated Cost | Actual Cost |")
+        lines.append("|---:|---|---|---:|---:|---:|---:|")
+        for estimate in estimates:
+            lines.append(
+                f"| {estimate.get('attempt', 'N/A')} | {_markdown_inline(estimate.get('stage', 'N/A'))} | "
+                f"{_markdown_inline(estimate.get('status', 'N/A'))} | "
+                f"{_format_token_count(estimate.get('estimated_total_tokens'))} | "
+                f"{_format_token_count(estimate.get('actual_total_tokens'))} | "
+                f"{_format_currency(estimate.get('estimated_cost_usd'))} | "
+                f"{_format_currency(estimate.get('actual_cost_usd'))} |"
+            )
+        lines.append("")
+        latest_estimate = estimates[-1]
+        lines.append(
+            f"_Estimator: `{_markdown_inline(latest_estimate.get('method', 'N/A'))}`, "
+            f"{latest_estimate.get('chars_per_token', 'N/A')} chars/token, "
+            f"{latest_estimate.get('safety_margin', 'N/A')} safety margin._"
+        )
+        lines.append("")
+
     lines.append("| Model | Prompt Tokens | Completion Tokens | Total Tokens | Cost |")
     lines.append("|---|---:|---:|---:|---:|")
     for call in usage.get("calls", []):

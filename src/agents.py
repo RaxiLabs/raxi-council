@@ -18,6 +18,7 @@ from src.config import (
     RETRY_BACKOFF_SECONDS,
     MAX_RETRY_BACKOFF_SECONDS,
     GENERATION_MODELS,
+    GENERATION_SYSTEM_PROMPT,
     EVALUATION_PERSONAS,
     EVALUATION_MODELS,
     MODEL_PRICING,
@@ -200,6 +201,31 @@ def _build_response_schema_hint(response_ids):
         for response_id in response_ids
     }
     return json.dumps({"arbiter_id": "ARBITER-ID", "evaluations": evaluations}, indent=2)
+
+
+def format_anonymised_responses(anonymised_responses):
+    return "\n\n".join(
+        f"{item['id']}:\n{item['response']}"
+        for item in anonymised_responses
+    )
+
+
+def build_evaluation_prompt(user_prompt, anonymised_responses):
+    formatted_responses = format_anonymised_responses(anonymised_responses)
+    return (
+        f"Original question: {user_prompt}\n\n"
+        f"Evaluate each of the following anonymous responses:\n\n"
+        f"{formatted_responses}"
+    )
+
+
+def build_initial_evaluation_prompt(user_prompt, anonymised_responses):
+    response_ids = [item["id"] for item in anonymised_responses]
+    return (
+        build_evaluation_prompt(user_prompt, anonymised_responses)
+        + "\n\nReturn JSON in this exact top-level shape:\n"
+        + _build_response_schema_hint(response_ids)
+    )
 
 
 def _validate_dimension_score(persona, dimension, value):
@@ -477,12 +503,11 @@ def generate_responses(user_prompt, generation_models=None):
 
     responses = []
     usage_log = []
-    system_prompt = "You are a helpful and accurate assistant. Answer the following question as accurately and completely as possible."
     selected_generation_models = generation_models or GENERATION_MODELS
 
     with ThreadPoolExecutor(max_workers=len(selected_generation_models)) as executor:
         futures = {
-            executor.submit(call_llm, model, system_prompt, user_prompt, GENERATION_MAX_TOKENS): model
+            executor.submit(call_llm, model, GENERATION_SYSTEM_PROMPT, user_prompt, GENERATION_MAX_TOKENS): model
             for model in selected_generation_models
         }
 
@@ -530,16 +555,7 @@ def evaluate_responses(
 ):
     print(Fore.YELLOW + "\n  ── Evaluation " + "─" * 46)
 
-    formatted_responses = "\n\n".join(
-        f"{item['id']}:\n{item['response']}"
-        for item in anonymised_responses
-    )
-
-    evaluation_prompt = (
-        f"Original question: {user_prompt}\n\n"
-        f"Evaluate each of the following anonymous responses:\n\n"
-        f"{formatted_responses}"
-    )
+    evaluation_prompt = build_evaluation_prompt(user_prompt, anonymised_responses)
 
     personas = evaluation_personas or EVALUATION_PERSONAS
     models = evaluation_models or EVALUATION_MODELS

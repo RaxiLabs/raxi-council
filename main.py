@@ -165,6 +165,13 @@ def display_results(results):
         print(Fore.WHITE  + f"  Sem Ent.    {semantic_entropy.get('normalized_entropy', 'N/A')}")
         print(Fore.WHITE  + f"  Agreement   {semantic_entropy.get('agreement_score', 'N/A')}")
     print(Fore.WHITE  + f"  Tokens      {total_tokens}")
+    attempt_estimates = [
+        estimate
+        for estimate in usage.get("estimates", [])
+        if estimate.get("stage") == "attempt"
+    ]
+    if attempt_estimates:
+        print(Fore.WHITE + f"  Est. run    {attempt_estimates[-1].get('estimated_total_tokens', 'N/A')}")
     if token_budget is not None:
         print(Fore.WHITE  + f"  Budget      {token_budget}")
     print(Fore.WHITE  + f"  Cost        {cost_str}")

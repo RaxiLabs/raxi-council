@@ -23,6 +23,7 @@ The current project is intentionally small: one interactive CLI entry point, a f
 - Runs a lightweight prompt safety check before calling generation models.
 - Computes semantic entropy from response clusters to show agreement or disagreement.
 - Tracks prompt tokens, completion tokens, total tokens, and estimated cost.
+- Estimates token usage before each council stage and blocks runs projected to exceed a user budget.
 - Retries API calls and malformed evaluator JSON where possible.
 - Saves full Markdown reports under `results/`.
 
@@ -121,7 +122,7 @@ You will be prompted for:
 | Max retries | Number of full council attempts before failing | `3` |
 | Generation models k | Number of generation models to use | All configured models |
 | Evaluation arbiters m | Number of arbiter personas to use | All configured arbiters |
-| Max token budget | Optional total token cap | None |
+| Max token budget | Optional total token cap checked against estimated and actual usage | None |
 
 Example:
 
@@ -148,6 +149,7 @@ Models      k=[generation count] m=[arbiter count]
 Sem Ent.    [normalized entropy]
 Agreement   [agreement score]
 Tokens      [total tokens]
+Est. run    [estimated attempt tokens]
 Cost        [estimated cost]
 ```
 
@@ -167,6 +169,7 @@ Reports include:
 - Aggregation details
 - Hallucination policy result
 - Semantic entropy clusters
+- Token budget estimates compared with actual usage
 - API usage and estimated cost
 
 ## Configuration

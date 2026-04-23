@@ -93,6 +93,19 @@ def _build_semantic_entropy_metrics(clusters, response_scores):
         "mass_basis": "weighted_response_scores" if use_score_mass else "cluster_size",
     }
 
+
+def build_semantic_entropy_prompt(user_prompt, anonymised_responses):
+    formatted_responses = []
+    for item in anonymised_responses:
+        formatted_responses.append(f"{item['id']}:\n{item['response']}")
+
+    return (
+        f"Original question: {user_prompt}\n\n"
+        "Cluster the following responses by semantic equivalence.\n\n"
+        + "\n\n".join(formatted_responses)
+    )
+
+
 def analyse_semantic_entropy(user_prompt, anonymised_responses, response_scores):
     if not anonymised_responses:
         return None, []
@@ -105,15 +118,7 @@ def analyse_semantic_entropy(user_prompt, anonymised_responses, response_scores)
         return metrics, []
 
     response_ids = [item["id"] for item in anonymised_responses]
-    formatted_responses = []
-    for item in anonymised_responses:
-        formatted_responses.append(f"{item['id']}:\n{item['response']}")
-
-    prompt = (
-        f"Original question: {user_prompt}\n\n"
-        "Cluster the following responses by semantic equivalence.\n\n"
-        + "\n\n".join(formatted_responses)
-    )
+    prompt = build_semantic_entropy_prompt(user_prompt, anonymised_responses)
     system_prompt = load_prompt("semantic_entropy")
 
     raw, usage = call_llm(
