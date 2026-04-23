@@ -2,11 +2,11 @@
 
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![Version](https://img.shields.io/badge/version-v1.0.0-blue)
-![Netlify](https://img.shields.io/badge/netlify-deployed-00C7B7)
+[![Netlify](https://img.shields.io/badge/netlify-deployed-00C7B7)](https://raxi-labs.netlify.app)
 ![License](https://img.shields.io/badge/license-MIT-blue)
-![Last Commit](https://img.shields.io/github/last-commit/RaxiLabs/raxi-council)
-![Repo Size](https://img.shields.io/github/repo-size/RaxiLabs/raxi-council)
-![Stars](https://img.shields.io/github/stars/RaxiLabs/raxi-council)
+[![Last Commit](https://img.shields.io/github/last-commit/RaxiLabs/raxi-council)](https://github.com/RaxiLabs/raxi-council/commits)
+[![Repo Size](https://img.shields.io/github/repo-size/RaxiLabs/raxi-council)](https://github.com/RaxiLabs/raxi-council)
+[![Stars](https://img.shields.io/github/stars/RaxiLabs/raxi-council)](https://github.com/RaxiLabs/raxi-council/stargazers)
 
 Raxi Court is an experimental multi-LLM verification CLI from Raxi Labs. It asks multiple models to answer the same prompt, hides model identities, has independent arbiter models evaluate each answer, then saves an auditable Markdown report with scores, hallucination flags, semantic agreement, token usage, and estimated cost.
 
