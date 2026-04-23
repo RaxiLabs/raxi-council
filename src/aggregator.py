@@ -1,4 +1,4 @@
-from colorama import Fore, init
+from colorama import Fore, init # type: ignore
 from src.config import (
     ARBITER_WEIGHTS,
     DIMENSION_WEIGHTS,

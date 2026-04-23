@@ -1,11 +1,11 @@
 import json
 import time
-import requests
+import requests # type: ignore
 import random as r
 import threading
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from colorama import Fore, init
+from colorama import Fore, init # type: ignore
 from src.config import (
     PROMPT_PATHS,
     OPENROUTER_ENDPOINT,
@@ -18,6 +18,7 @@ from src.config import (
     RETRY_BACKOFF_SECONDS,
     MAX_RETRY_BACKOFF_SECONDS,
     GENERATION_MODELS,
+    GENERATION_SYSTEM_PROMPT,
     EVALUATION_PERSONAS,
     EVALUATION_MODELS,
     MODEL_PRICING,
@@ -477,12 +478,11 @@ def generate_responses(user_prompt, generation_models=None):
 
     responses = []
     usage_log = []
-    system_prompt = "You are a helpful and accurate assistant. Answer the following question as accurately and completely as possible."
     selected_generation_models = generation_models or GENERATION_MODELS
 
     with ThreadPoolExecutor(max_workers=len(selected_generation_models)) as executor:
         futures = {
-            executor.submit(call_llm, model, system_prompt, user_prompt, GENERATION_MAX_TOKENS): model
+            executor.submit(call_llm, model, GENERATION_SYSTEM_PROMPT, user_prompt, GENERATION_MAX_TOKENS): model
             for model in selected_generation_models
         }
 

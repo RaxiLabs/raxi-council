@@ -30,6 +30,12 @@ def _truncate_text(text, max_length=180):
     return cleaned[: max_length - 3].rstrip() + "..."
 
 
+def _format_token_estimate(value):
+    if value is None:
+        return "N/A"
+    return f"{int(value)}"
+
+
 def _build_report_filename(report_name=None, timestamp=None):
     timestamp = timestamp or datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -308,6 +314,31 @@ def format_results(results):
         lines.append(f"- Remaining tokens: `{usage.get('remaining_tokens', 'N/A')}`")
     lines.append(f"- Estimated cost: `{_format_currency(usage.get('total_cost_usd'))}`")
     lines.append("")
+
+    estimates = usage.get("estimates") or []
+    if estimates:
+        lines.append("## Token Budget Estimates")
+        lines.append("")
+        lines.append("| Attempt | Stage | Status | Estimated Tokens | Actual Tokens | Difference |")
+        lines.append("|---:|---|---|---:|---:|---:|")
+        for estimate in estimates:
+            estimated = estimate.get("estimated_total_tokens")
+            actual = estimate.get("actual_total_tokens")
+            difference = None if actual is None or estimated is None else actual - estimated
+            lines.append(
+                f"| {estimate.get('attempt', 'N/A')} | {_markdown_inline(estimate.get('stage', 'N/A'))} | "
+                f"{_markdown_inline(estimate.get('status', 'N/A'))} | {_format_token_estimate(estimated)} | "
+                f"{_format_token_estimate(actual)} | {_format_token_estimate(difference)} |"
+            )
+        lines.append("")
+        latest_estimate = estimates[-1]
+        lines.append(
+            f"_Estimator: `{_markdown_inline(latest_estimate.get('method', 'N/A'))}`, "
+            f"{latest_estimate.get('chars_per_token', 'N/A')} chars/token, "
+            f"{latest_estimate.get('safety_margin', 'N/A')} safety margin._"
+        )
+        lines.append("")
+
     lines.append("| Model | Prompt Tokens | Completion Tokens | Total Tokens | Cost |")
     lines.append("|---|---:|---:|---:|---:|")
     for call in usage.get("calls", []):

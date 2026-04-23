@@ -1,6 +1,6 @@
 import os
 import re
-from dotenv import load_dotenv
+from dotenv import load_dotenv # type: ignore
 
 load_dotenv()
 
@@ -48,6 +48,11 @@ PROMPT_PATHS = {
     "semantic_entropy": "prompts/semantic_entropy.txt",
 }
 
+GENERATION_SYSTEM_PROMPT = (
+    "You are a helpful and accurate assistant. Answer the following question "
+    "as accurately and completely as possible."
+)
+
 ARBITER_WEIGHTS = {
     "sceptic":  0.5,
     "expert":   0.25,
@@ -75,6 +80,9 @@ MIN_VALID_ARBITERS = 2
 OUTPUT_DIR      = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "results")
 SEMANTIC_ENTROPY_MODEL = "openai/gpt-5.4-nano"
 SEMANTIC_ENTROPY_WARNING_THRESHOLD = 0.6
+TOKEN_ESTIMATION_CHARS_PER_TOKEN = 4
+TOKEN_ESTIMATION_MESSAGE_OVERHEAD = 12
+TOKEN_ESTIMATION_SAFETY_MARGIN = 1.15
 
 MODEL_PRICING = {
     "openai/gpt-4o-mini":           {"input": 0.15,  "output": 0.60},
