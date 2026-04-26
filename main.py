@@ -159,10 +159,14 @@ def display_results(results):
     cost_str     = f"${total_cost:.4f}" if total_cost is not None else "N/A"
     run_config = results.get("run_config", {})
     semantic_entropy = results.get("aggregation", {}).get("semantic_entropy")
+    disagreement = results.get("aggregation", {}).get("disagreement", {})
+    disagreement_flagged = disagreement.get("flagged", False)
+    disagreement_label = Fore.YELLOW + "YES" if disagreement_flagged else Fore.GREEN + "NONE"
 
     print(Fore.WHITE  + f"  Attempts    {results['attempt']}")
     print(Fore.WHITE  + f"  Elapsed     {results['elapsed_time']}s")
     print(Fore.WHITE  + f"  Hallucin.   {hall_label}")
+    print(Fore.WHITE  + f"  Disagree.   {disagreement_label}")
     print(Fore.WHITE  + f"  Models      k={run_config.get('generation_count', 'N/A')}  m={run_config.get('evaluation_count', 'N/A')}")
     if semantic_entropy is not None:
         print(Fore.WHITE  + f"  Sem Ent.    {semantic_entropy.get('normalized_entropy', 'N/A')}")
@@ -187,6 +191,11 @@ def display_results(results):
         if raw is not None:
             bar = "█" * round(raw) + "░" * (10 - round(raw))
             print(Fore.CYAN + f"  {persona.upper():<12} {bar}  {raw}/10")
+    if disagreement_flagged:
+        print(
+            Fore.YELLOW
+            + f"  Warning      disagreement flagged ({', '.join(disagreement.get('reasons', []))})"
+        )
 
     print(Fore.YELLOW + r"""
  ____            _     ____                                     

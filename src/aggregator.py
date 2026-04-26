@@ -1,7 +1,10 @@
+import math
 from colorama import Fore, init
 from src.config import (
     ARBITER_WEIGHTS,
     DIMENSION_WEIGHTS,
+    DISAGREEMENT_SCORE_RANGE_THRESHOLD,
+    DISAGREEMENT_STDDEV_THRESHOLD,
     HALLUCINATION_POLICY,
     HALLUCINATION_WEIGHT_THRESHOLD,
 )
@@ -51,6 +54,97 @@ def _calculate_hallucination_result(hallucination_flags):
         **base_result,
         "policy": "any",
     }
+
+
+def _calculate_disagreement_result(raw_scores, hallucination_flags, semantic_entropy=None):
+    valid_scores = {
+        persona: score for persona, score in raw_scores.items() if isinstance(score, (int, float))
+    }
+    valid_flags = {
+        persona: flag for persona, flag in hallucination_flags.items() if isinstance(flag, bool)
+    }
+
+    if not valid_scores:
+        return {
+            "flagged": False,
+            "reasons": [],
+            "severity": "none",
+            "valid_arbiter_count": 0,
+            "score_range": 0.0,
+            "score_stddev": 0.0,
+            "mean_score": None,
+            "thresholds": {
+                "score_range": DISAGREEMENT_SCORE_RANGE_THRESHOLD,
+                "score_stddev": DISAGREEMENT_STDDEV_THRESHOLD,
+                "semantic_entropy": None,
+            },
+            "hallucination_split": False,
+            "semantic_disagreement": False,
+        }
+
+    score_values = list(valid_scores.values())
+    mean_score = sum(score_values) / len(score_values)
+    score_range = max(score_values) - min(score_values)
+    variance = sum((score - mean_score) ** 2 for score in score_values) / len(score_values)
+    score_stddev = math.sqrt(variance)
+    reasons = []
+
+    if score_range >= DISAGREEMENT_SCORE_RANGE_THRESHOLD:
+        reasons.append("wide_score_range")
+
+    if score_stddev >= DISAGREEMENT_STDDEV_THRESHOLD:
+        reasons.append("high_score_variance")
+
+    hallucination_split = len(set(valid_flags.values())) > 1 if valid_flags else False
+    if hallucination_split:
+        reasons.append("mixed_hallucination_votes")
+
+    semantic_threshold = None
+    semantic_disagreement = False
+    if semantic_entropy is not None:
+        semantic_threshold = semantic_entropy.get("warning_threshold")
+        normalized_entropy = semantic_entropy.get("normalized_entropy")
+        if (
+            isinstance(normalized_entropy, (int, float))
+            and isinstance(semantic_threshold, (int, float))
+            and normalized_entropy >= semantic_threshold
+        ):
+            semantic_disagreement = True
+            reasons.append("high_semantic_disagreement")
+
+    if len(reasons) >= 2:
+        severity = "high"
+    elif reasons:
+        severity = "moderate"
+    else:
+        severity = "none"
+
+    return {
+        "flagged": bool(reasons),
+        "reasons": reasons,
+        "severity": severity,
+        "valid_arbiter_count": len(valid_scores),
+        "score_range": round(score_range, 2),
+        "score_stddev": round(score_stddev, 2),
+        "mean_score": round(mean_score, 2),
+        "thresholds": {
+            "score_range": DISAGREEMENT_SCORE_RANGE_THRESHOLD,
+            "score_stddev": DISAGREEMENT_STDDEV_THRESHOLD,
+            "semantic_entropy": semantic_threshold,
+        },
+        "hallucination_split": hallucination_split,
+        "semantic_disagreement": semantic_disagreement,
+    }
+
+
+def attach_disagreement_result(aggregation, semantic_entropy=None):
+    disagreement = _calculate_disagreement_result(
+        aggregation.get("raw_scores", {}),
+        aggregation.get("hallucination_flags", {}),
+        semantic_entropy=semantic_entropy,
+    )
+    aggregation["disagreement"] = disagreement
+    return disagreement
 
 
 def calculate_weighted_dimension_score(evaluation):
@@ -172,6 +266,7 @@ def calculate_final_score(evaluations, best_response_id):
         "hallucination_details": hallucination_details,
         "hallucination_assessments": hallucination_assessments,
         "hallucination_policy_result": hallucination_policy_result,
+        "disagreement": None,
     }
 
 

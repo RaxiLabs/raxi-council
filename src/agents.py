@@ -246,14 +246,21 @@ def build_evaluation_cache_request(
     persona,
     model,
     max_tokens=EVALUATION_MAX_TOKENS,
+    evaluation_prompt=None,
+    response_ids=None,
+    system_prompt=None,
 ):
+    response_ids = response_ids or [item["id"] for item in anonymised_responses]
+    evaluation_prompt = evaluation_prompt or build_evaluation_prompt(user_prompt, anonymised_responses)
+    system_prompt = system_prompt or load_prompt(persona)
+
     return {
         "max_tokens": max_tokens,
         "model": model,
         "persona": persona,
-        "response_ids": [item["id"] for item in anonymised_responses],
-        "system_prompt": load_prompt(persona),
-        "user_prompt": build_evaluation_prompt(user_prompt, anonymised_responses),
+        "response_ids": response_ids,
+        "system_prompt": system_prompt,
+        "user_prompt": evaluation_prompt,
     }
 
 
@@ -617,9 +624,22 @@ def evaluate_responses(
     evaluations = {}
     usage_log = []
     schema_hint = _build_response_schema_hint(expected_response_ids)
+    persona_prompts = {persona: load_prompt(persona) for persona in personas}
+    cache_requests = {
+        persona: build_evaluation_cache_request(
+            user_prompt,
+            anonymised_responses,
+            persona,
+            models[index],
+            EVALUATION_MAX_TOKENS,
+            evaluation_prompt=evaluation_prompt,
+            response_ids=expected_response_ids,
+            system_prompt=persona_prompts[persona],
+        )
+        for index, persona in enumerate(personas)
+    }
 
     def evaluate_persona(persona, model, cache_request):
-        sys_prompt = load_prompt(persona)
         attempt_prompt = (
             evaluation_prompt
             + "\n\nReturn JSON in this exact top-level shape:\n"
@@ -630,7 +650,7 @@ def evaluate_responses(
         for attempt in range(1, EVALUATION_PARSE_RETRIES + 2):
             raw, usage = call_llm(
                 model=model,
-                system_prompt=sys_prompt,
+                system_prompt=persona_prompts[persona],
                 user_prompt=attempt_prompt,
                 max_tokens=EVALUATION_MAX_TOKENS
             )
@@ -686,13 +706,7 @@ def evaluate_responses(
 
         for i, persona in enumerate(personas):
             model = models[i]
-            cache_request = build_evaluation_cache_request(
-                user_prompt,
-                anonymised_responses,
-                persona,
-                model,
-                EVALUATION_MAX_TOKENS,
-            )
+            cache_request = cache_requests[persona]
             cached_result, cached_usage = get_cached_result(EVALUATION_CACHE_NAMESPACE, cache_request)
 
             if cached_result is not None:

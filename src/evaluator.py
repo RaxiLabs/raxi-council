@@ -1,7 +1,7 @@
 import time
 from colorama import Fore, init
 from src.agents import generate_responses, anonymise_and_shuffle, evaluate_responses
-from src.aggregator import calculate_final_score, select_best_response
+from src.aggregator import attach_disagreement_result, calculate_final_score, select_best_response
 from src.budget import (
     estimate_attempt_budget,
     estimate_evaluation_stage,
@@ -16,6 +16,8 @@ from src.config import (
     HALLUCINATION_POLICY,
     HALLUCINATION_WEIGHT_THRESHOLD,
     RESPONSE_CACHE_ENABLED,
+    DISAGREEMENT_SCORE_RANGE_THRESHOLD,
+    DISAGREEMENT_STDDEV_THRESHOLD,
     SEMANTIC_ENTROPY_MODEL,
     SEMANTIC_ENTROPY_WARNING_THRESHOLD,
 )
@@ -388,7 +390,10 @@ def run_council(
 
         aggregation["response_scores"] = response_scores
         aggregation["response_persona_scores"] = persona_breakdown
+        if semantic_entropy is not None:
+            semantic_entropy["warning_threshold"] = SEMANTIC_ENTROPY_WARNING_THRESHOLD
         aggregation["semantic_entropy"] = semantic_entropy
+        disagreement = attach_disagreement_result(aggregation, semantic_entropy=semantic_entropy)
 
         final_score = aggregation["final_score"]
 
@@ -400,6 +405,14 @@ def run_council(
             )
             if semantic_entropy["normalized_entropy"] >= SEMANTIC_ENTROPY_WARNING_THRESHOLD:
                 print(Fore.YELLOW + "  [WARN] High semantic disagreement detected across candidate responses.")
+
+        if disagreement.get("flagged"):
+            print(
+                Fore.YELLOW
+                + "  [WARN] Arbiter disagreement detected "
+                + f"(range {disagreement['score_range']}, stddev {disagreement['score_stddev']}; "
+                + f"thresholds {DISAGREEMENT_SCORE_RANGE_THRESHOLD}/{DISAGREEMENT_STDDEV_THRESHOLD})."
+            )
 
         if final_score < score_threshold:
             print(Fore.RED + f"  ✗ Score {final_score}/100 below threshold {score_threshold}/100. Retrying...")

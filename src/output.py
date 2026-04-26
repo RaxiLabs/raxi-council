@@ -173,6 +173,11 @@ def format_results(results):
     if semantic_entropy is not None:
         lines.append(f"- Semantic entropy: `{semantic_entropy.get('normalized_entropy', 'N/A')}`")
         lines.append(f"- Semantic agreement: `{semantic_entropy.get('agreement_score', 'N/A')}`")
+    disagreement = aggregation.get("disagreement") or {}
+    lines.append(f"- Disagreement flagged: `{disagreement.get('flagged', False)}`")
+    if disagreement.get("flagged"):
+        lines.append(f"- Disagreement severity: `{_markdown_inline(disagreement.get('severity', 'N/A'))}`")
+        lines.append(f"- Disagreement reasons: `{_markdown_inline(', '.join(disagreement.get('reasons', [])))}`")
     lines.append(f"- Total tokens: `{usage.get('total_tokens', 'N/A')}`")
     if usage.get("max_total_tokens") is not None:
         lines.append(f"- Token budget: `{usage['max_total_tokens']}`")
@@ -244,6 +249,16 @@ def format_results(results):
     lines.append(f"- Winning response id: `{aggregation['best_response_id']}`")
     lines.append(f"- Final score: `{aggregation['final_score']}/100`")
     lines.append(f"- Hallucination flagged: `{aggregation['any_hallucination']}`")
+    disagreement = aggregation.get("disagreement") or {}
+    lines.append(f"- Disagreement flagged: `{disagreement.get('flagged', False)}`")
+    if disagreement.get("severity") not in {None, 'none'}:
+        lines.append(f"- Disagreement severity: `{_markdown_inline(disagreement.get('severity'))}`")
+    if disagreement.get("score_range") is not None:
+        lines.append(f"- Arbiter score range: `{disagreement.get('score_range')}`")
+    if disagreement.get("score_stddev") is not None:
+        lines.append(f"- Arbiter score stddev: `{disagreement.get('score_stddev')}`")
+    if disagreement.get("reasons"):
+        lines.append(f"- Disagreement reasons: `{_markdown_inline(', '.join(disagreement.get('reasons', [])))}`")
     policy_result = aggregation.get("hallucination_policy_result") or {}
     lines.append(f"- Hallucination decision policy: `{_markdown_inline(policy_result.get('policy', run_config.get('hallucination_policy', 'N/A')))}`")
     if policy_result.get("threshold") is not None:

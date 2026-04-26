@@ -147,6 +147,8 @@ def estimate_generation_stage(user_prompt, generation_models):
 
 def estimate_evaluation_stage(user_prompt, anonymised_responses, evaluation_personas, evaluation_models):
     response_count = len(anonymised_responses)
+    response_ids = [item["id"] for item in anonymised_responses]
+    evaluation_prompt = build_evaluation_prompt(user_prompt, anonymised_responses)
     completion_tokens = min(
         EVALUATION_MAX_TOKENS,
         EVALUATION_BASE_COMPLETION_TOKENS
@@ -160,6 +162,8 @@ def estimate_evaluation_stage(user_prompt, anonymised_responses, evaluation_pers
             persona,
             model,
             EVALUATION_MAX_TOKENS,
+            evaluation_prompt=evaluation_prompt,
+            response_ids=response_ids,
         )
         calls.append(
             _estimate_call(
