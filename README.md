@@ -1,16 +1,53 @@
-# Raxi Court
+<p align="center">
+  <img src="./assets/raxi-labs-banner.svg" alt="Raxi Labs banner" width="100%" />
+</p>
 
-![Python](https://img.shields.io/badge/python-3.12-blue)
-![Version](https://img.shields.io/badge/version-v1.0.0-blue)
-[![Netlify](https://img.shields.io/badge/netlify-deployed-00C7B7)](https://raxi-labs.netlify.app)
-![License](https://img.shields.io/badge/license-MIT-blue)
-[![Last Commit](https://img.shields.io/github/last-commit/RaxiLabs/raxi-council)](https://github.com/RaxiLabs/raxi-council/commits)
-[![Repo Size](https://img.shields.io/github/repo-size/RaxiLabs/raxi-council)](https://github.com/RaxiLabs/raxi-council)
-[![Stars](https://img.shields.io/github/stars/RaxiLabs/raxi-council)](https://github.com/RaxiLabs/raxi-council/stargazers)
+<h1 align="center">Raxi Court</h1>
 
-Raxi Court is an experimental multi-LLM verification CLI from Raxi Labs. It asks multiple models to answer the same prompt, hides model identities, has independent arbiter models evaluate each answer, then saves an auditable Markdown report with scores, hallucination flags, semantic agreement, token usage, and estimated cost.
+<p align="center">
+  Open-source multi-LLM verification from Raxi Labs.
+</p>
 
-The current project is intentionally small: one interactive CLI entry point, a few source modules, plain-text arbiter prompts, and generated reports in `results/`.
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.12-blue" alt="Python 3.12" />
+  <img src="https://img.shields.io/badge/version-v1.0.0-blue" alt="Version v1.0.0" />
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" />
+  <a href="https://raxi-labs.netlify.app"><img src="https://img.shields.io/badge/netlify-deployed-00C7B7" alt="Netlify deployed" /></a>
+  <a href="https://github.com/RaxiLabs/raxi-council/commits"><img src="https://img.shields.io/github/last-commit/RaxiLabs/raxi-council" alt="Last commit" /></a>
+  <a href="https://github.com/RaxiLabs/raxi-council"><img src="https://img.shields.io/github/repo-size/RaxiLabs/raxi-council" alt="Repository size" /></a>
+  <a href="https://github.com/RaxiLabs/raxi-council/stargazers"><img src="https://img.shields.io/github/stars/RaxiLabs/raxi-council" alt="GitHub stars" /></a>
+</p>
+
+<p align="center">
+  <a href="#current-capabilities"><strong>Capabilities</strong></a> ·
+  <a href="#setup"><strong>Setup</strong></a> ·
+  <a href="#usage"><strong>Usage</strong></a> ·
+  <a href="#configuration"><strong>Configuration</strong></a> ·
+  <a href="#project-structure"><strong>Project Structure</strong></a>
+</p>
+
+Raxi Court is an experimental multi-LLM verification CLI. It runs multiple models on the same prompt, anonymizes their responses, scores them with separate arbiter roles, and saves a traceable Markdown report with final scores, hallucination flags, disagreement signals, semantic agreement, token usage, and estimated cost.
+
+The current project is intentionally small: one interactive CLI entry point, a few source modules, plain-text arbiter prompts, response caching, and generated reports in `results/`.
+
+## At a Glance
+
+- Multi-model answer generation through OpenRouter
+- Anonymous A/B/C response evaluation
+- Separate arbiter personas for scoring
+- Hallucination and disagreement flagging
+- Semantic entropy for response agreement
+- Token budgeting, caching, and report export
+
+## Quick Start
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+python3 main.py
+```
 
 ## Current Capabilities
 
@@ -20,6 +57,7 @@ The current project is intentionally small: one interactive CLI entry point, a f
 - Scores factual accuracy, completeness, and reasoning quality.
 - Selects the best response using weighted arbiter scores.
 - Flags hallucination concerns reported by arbiters.
+- Flags arbiter disagreement when score spread, variance, hallucination votes, or semantic disagreement become significant.
 - Runs a lightweight prompt safety check before calling generation models.
 - Computes semantic entropy from response clusters to show agreement or disagreement.
 - Tracks prompt tokens, completion tokens, total tokens, and estimated cost.
@@ -145,6 +183,7 @@ Score       [final score]/100
 Attempts    [attempt count]
 Elapsed     [seconds]
 Hallucin.   YES or NONE
+Disagree.   YES or NONE
 Models      k=[generation count] m=[arbiter count]
 Sem Ent.    [normalized entropy]
 Agreement   [agreement score]
@@ -168,6 +207,7 @@ Reports include:
 - Arbiter evaluations for the winning response
 - Aggregation details
 - Hallucination policy result
+- Disagreement status and reasons
 - Semantic entropy clusters
 - Token budget estimates compared with actual usage
 - API usage and estimated cost

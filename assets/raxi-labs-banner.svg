@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 500" role="img" aria-labelledby="title desc">
+  <title id="title">Raxi Labs banner</title>
+  <desc id="desc">A black Raxi Labs banner with the RX mark, red signal border, and open source multi-LLM framework tagline.</desc>
+  <rect width="1500" height="500" fill="#101010" />
+  <path d="M0 0H1500V22H0Z" fill="#e74b2c" />
+  <path d="M0 478H1500V500H0Z" fill="#e74b2c" />
+  <path d="M0 0H22V500H0Z" fill="#e74b2c" />
+  <path d="M1478 0H1500V500H1478Z" fill="#e74b2c" />
+
+  <g opacity="0.12" stroke="#f4f0e8" stroke-width="1">
+    <path d="M0 83.333H1500" />
+    <path d="M0 166.666H1500" />
+    <path d="M0 250H1500" />
+    <path d="M0 333.333H1500" />
+    <path d="M0 416.666H1500" />
+    <path d="M100 0V500" />
+    <path d="M200 0V500" />
+    <path d="M300 0V500" />
+    <path d="M400 0V500" />
+    <path d="M500 0V500" />
+    <path d="M600 0V500" />
+    <path d="M700 0V500" />
+    <path d="M800 0V500" />
+    <path d="M900 0V500" />
+    <path d="M1000 0V500" />
+    <path d="M1100 0V500" />
+    <path d="M1200 0V500" />
+    <path d="M1300 0V500" />
+    <path d="M1400 0V500" />
+  </g>
+
+  <rect x="114" y="136" width="228" height="228" fill="#f4f0e8" />
+  <text
+    x="156"
+    y="280"
+    fill="#101010"
+    font-family="JetBrains Mono, monospace"
+    font-size="72"
+    font-weight="800"
+    letter-spacing="0"
+  >RX</text>
+
+  <text
+    x="410"
+    y="190"
+    fill="#e74b2c"
+    font-family="JetBrains Mono, monospace"
+    font-size="28"
+    font-weight="800"
+    letter-spacing="0"
+  >OPEN SOURCE / MULTI-LLM / FRAMEWORK LAB</text>
+  <text
+    x="406"
+    y="293"
+    fill="#f4f0e8"
+    font-family="JetBrains Mono, monospace"
+    font-size="88"
+    font-weight="800"
+    letter-spacing="0"
+  >RAXI LABS</text>
+  <text
+    x="410"
+    y="352"
+    fill="#f4f0e8"
+    opacity="0.78"
+    font-family="JetBrains Mono, monospace"
+    font-size="30"
+    font-weight="600"
+    letter-spacing="0"
+  >WE BUILD OPEN SOURCE LLM FRAMEWORKS.</text>
+</svg>
